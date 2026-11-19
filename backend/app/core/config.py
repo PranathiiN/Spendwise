@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,13 +40,27 @@ class Settings(BaseSettings):
         default="http://localhost:5173,http://127.0.0.1:5173", alias="CORS_ORIGINS"
     )
 
-    # Phase 2 AI features. Leave ANTHROPIC_API_KEY empty to switch them off;
-    # the rest of the app keeps working.
+    # Phase 2 AI features.
+    # Categories, quick add, insights and the assistant use SpendWise's own models and are always on.
+    # Receipt scanning needs an LLM: AI_PROVIDER "ollama" (free, local) or "anthropic" (Claude API, paid);
+    # "off" (default) hides receipt scanning.
+    ai_provider: Literal["ollama", "anthropic", "off"] = Field(default="off", alias="AI_PROVIDER")
+
+    ollama_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_URL")
+    ollama_model: str = Field(default="qwen2.5:3b", alias="OLLAMA_MODEL")
+    ollama_vision_model: str = Field(default="gemma3:4b", alias="OLLAMA_VISION_MODEL")
+    ollama_timeout_seconds: float = Field(default=300.0, alias="OLLAMA_TIMEOUT_SECONDS")
+
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     ai_model: str = Field(default="claude-opus-5-5", alias="AI_MODEL")
 
+    @field_validator("ai_provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
     @property
-    def ai_enabled(self) -> bool:
+    def anthropic_key_set(self) -> bool:
         key = (self.anthropic_api_key or "").strip()
         return bool(key) and not key.startswith("CHANGE_ME")
 

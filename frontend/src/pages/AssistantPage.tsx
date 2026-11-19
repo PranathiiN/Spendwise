@@ -81,8 +81,8 @@ export function AssistantPage() {
 
       {!ai.enabled ? (
         <EmptyState
-          title="The assistant is switched off"
-          description="Add an ANTHROPIC_API_KEY to backend/.env and restart the backend to turn on AI features."
+          title="The assistant isn't available right now"
+          description={ai.message ?? "AI features are switched off."}
         />
       ) : (
         <div className="card flex min-h-[60vh] flex-col">

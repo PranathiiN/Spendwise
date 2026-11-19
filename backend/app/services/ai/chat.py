@@ -1,15 +1,14 @@
 """SW-14: read-only chat assistant over the user's own finances.
 
-Claude answers using tools that call the existing SpendWise services. Every tool
-is scoped to the logged-in user, nothing can be created or changed, and the
-reply lists which data was used (period and filters) so answers can be checked.
+Questions are answered by SpendWise's own assistant (app/services/ml/assistant.py):
+an intent model we trained plus rules, using the data helpers below. Every helper
+is scoped to the logged-in user and nothing can be created or changed.
 """
 
 from __future__ import annotations
 
 import json
 import re
-import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Any, Callable
@@ -22,93 +21,16 @@ from app.models.enums import TransactionType
 from app.models.savings_goal import SavingsGoal
 from app.models.transaction import Transaction
 from app.models.user import User
-from app.schemas.ai import ChatMessage, ChatResponse, ToolCallSummary
-from app.services.ai.client import AIRequestError, create_message, response_text
+from app.schemas.ai import ChatMessage, ChatResponse
 from app.services.budget_service import list_budgets_with_status
 from app.services.category_service import accessible_categories_filter
 from app.services.dashboard_service import category_breakdown, month_totals, monthly_trend
 from app.services.goal_service import goal_to_read
-from app.utils.dates import add_months, format_month, month_range
+from app.utils.dates import add_months, format_month
 from app.utils.money import ZERO, money
 
-MAX_TURNS = 8
-MAX_HISTORY = 20
 MAX_TX_RESULTS = 50
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
-
-SYSTEM_TEMPLATE = """You are the SpendWise assistant. You answer questions about one user's own personal finances using the tools provided.
-
-Today is {today}. The user's currency is {currency}. Their categories are: {categories}.
-
-Rules:
-- Always use the tools to look up figures. Never guess or invent numbers.
-- Copy amounts exactly as the tools return them. You may add amounts up, but say so.
-- You are read-only: you cannot add, edit or delete anything. If asked to, explain that and tell the user which page to use.
-- In each answer, say which period and filters you used (for example "for October 2026, category Food & Dining").
-- If the tools can't answer the question, say so plainly instead of guessing.
-- Keep answers short and friendly. Use plain text; simple lists are fine."""
-
-TOOLS: list[dict[str, Any]] = [
-    {
-        "name": "get_month_summary",
-        "description": "Income, spending, net and savings rate for one month, plus spending and income broken down by category.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"month": {"type": "string", "description": "Month as YYYY-MM"}},
-            "required": ["month"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "search_transactions",
-        "description": (
-            "Find the user's transactions in a date range, optionally filtered by type, category name or text in the "
-            f"description/notes. Returns the total count and sum of all matches, and up to {MAX_TX_RESULTS} of them, largest first."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "start_date": {"type": "string", "description": "First day, YYYY-MM-DD"},
-                "end_date": {"type": "string", "description": "Last day (inclusive), YYYY-MM-DD"},
-                "transaction_type": {"type": "string", "enum": ["income", "expense"]},
-                "category": {"type": "string", "description": "Exact category name"},
-                "text": {"type": "string", "description": "Text to search for in description or notes"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_TX_RESULTS},
-            },
-            "required": ["start_date", "end_date"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "get_budgets",
-        "description": "Budgets for one month with limit, amount spent, remaining, percent used and status.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"month": {"type": "string", "description": "Month as YYYY-MM"}},
-            "required": ["month"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "get_savings_goals",
-        "description": "All savings goals with target, saved amount, progress, target date and monthly amount needed.",
-        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
-    },
-    {
-        "name": "get_monthly_trend",
-        "description": "Income, spending and net per month for several months ending at end_month.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "end_month": {"type": "string", "description": "Last month as YYYY-MM"},
-                "months": {"type": "integer", "minimum": 1, "maximum": 12},
-            },
-            "required": ["end_month"],
-            "additionalProperties": False,
-        },
-    },
-]
-
 
 class ToolInputError(ValueError):
     pass
@@ -306,57 +228,9 @@ class ChatTools:
         return json.dumps(data), summary, False
 
 
-def _history(messages: list[ChatMessage]) -> list[dict[str, Any]]:
-    recent = messages[-MAX_HISTORY:]
-    while recent and recent[0].role != "user":
-        recent = recent[1:]
-    if not recent or recent[-1].role != "user":
-        raise AIRequestError("The last message must be from you.")
-    return [{"role": m.role, "content": m.content} for m in recent]
-
-
-def _system_prompt(db: Session, user: User, today: date) -> str:
-    names = db.scalars(
-        select(Category.name).where(accessible_categories_filter(user.id)).order_by(Category.name)
-    ).all()
-    return SYSTEM_TEMPLATE.format(
-        today=today.isoformat(), currency=user.preferred_currency, categories=", ".join(dict.fromkeys(names))
-    )
-
-
 def chat(db: Session, user: User, messages: list[ChatMessage], today: date | None = None) -> ChatResponse:
-    today = today or date.today()
-    tools = ChatTools(db, user)
-    convo = _history(messages)
-    system = _system_prompt(db, user, today)
-    used: list[ToolCallSummary] = []
+    from app.services.ml.assistant import answer_question
 
-    for _ in range(MAX_TURNS):
-        response = create_message(
-            max_tokens=16000,
-            system=system,
-            tools=TOOLS,
-            messages=convo,
-            output_config={"effort": "medium"},
-        )
-        if response.stop_reason == "pause_turn":
-            convo.append({"role": "assistant", "content": response.content})
-            continue
-        if response.stop_reason != "tool_use":
-            if response.stop_reason == "max_tokens":
-                raise AIRequestError("The answer was too long. Try a narrower question.")
-            reply = response_text(response).strip() or "Sorry, I couldn't come up with an answer."
-            return ChatResponse(reply=reply, data_used=used)
-
-        convo.append({"role": "assistant", "content": response.content})
-        results = []
-        for block in response.content:
-            if getattr(block, "type", None) != "tool_use":
-                continue
-            content, summary, is_error = tools.run(block.name, block.input)
-            if summary:
-                used.append(ToolCallSummary(tool=block.name, description=summary))
-            results.append({"type": "tool_result", "tool_use_id": block.id, "content": content, "is_error": is_error})
-        convo.append({"role": "user", "content": results})
-
-    raise AIRequestError("That question needed too many steps. Try asking something more specific.")
+    if not messages or messages[-1].role != "user":
+        raise ValueError("The last message must be from you.")
+    return answer_question(db, user, messages[-1].content, today)

@@ -241,13 +241,29 @@ export interface MonthlyReport {
 // ---- Phase 2 AI features ----------------------------------------------------------
 
 export interface AIStatus {
+  /** SpendWise's own models (categories, quick add, insights, assistant) - always on. */
   enabled: boolean;
+  /** Receipt scanning needs an optional LLM provider (Ollama or Claude). */
+  receipt_scanning: boolean;
+  provider: "ollama" | "anthropic" | "off";
   model: string | null;
+  /** Why receipt scanning is unavailable, if it is. */
+  message: string | null;
+}
+
+export interface ParsedTransaction {
+  transaction_type: TransactionType;
+  amount: Money | null;
+  description: string;
+  transaction_date: string | null;
+  category: Category | null;
+  payment_method: PaymentMethod | null;
+  missing: string[];
 }
 
 export interface CategorySuggestion {
   category: Category | null;
-  source: "history" | "ai" | "none";
+  source: "history" | "model" | "none";
   confidence: "low" | "medium" | "high" | null;
 }
 

@@ -1,11 +1,14 @@
-"""Phase 2 AI endpoints (SW-12, SW-13, SW-14, SW-16). All scoped to the logged-in user."""
+"""Phase 2 AI endpoints. All scoped to the logged-in user.
+
+Categories, quick add, insights and the assistant use SpendWise's own models (app/services/ml).
+Receipt scanning uses an optional LLM provider.
+"""
 
 from collections.abc import Callable
 from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
-from app.core.config import settings
 from app.core.dependencies import CurrentUser, DbSession, MonthParam
 from app.schemas.ai import (
     AIStatus,
@@ -14,13 +17,16 @@ from app.schemas.ai import (
     ChatRequest,
     ChatResponse,
     InsightsResponse,
+    ParsedTransaction,
+    ParseRequest,
     ReceiptScan,
 )
 from app.schemas.category import CategoryRead
 from app.services.ai.categorize import suggest_category
 from app.services.ai.chat import chat
-from app.services.ai.client import AIRequestError, AIUnavailableError
+from app.services.ai.client import AIRequestError, AIUnavailableError, provider_status
 from app.services.ai.insights import generate_insights
+from app.services.ai.parse_entry import parse_transaction
 from app.services.ai.receipts import MAX_BYTES, InvalidReceiptError, scan_receipt
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -40,7 +46,19 @@ def _run(fn: Callable[[], T]) -> T:
 
 @router.get("/status", response_model=AIStatus)
 def ai_status(current_user: CurrentUser) -> AIStatus:
-    return AIStatus(enabled=settings.ai_enabled, model=settings.ai_model if settings.ai_enabled else None)
+    name, st = provider_status()
+    message = st.message
+    if name == "off":
+        message = "Receipt scanning needs a vision model. Set AI_PROVIDER=ollama (free, local) in backend/.env to turn it on."
+    return AIStatus(
+        enabled=True, receipt_scanning=st.ready, provider=name, model=st.model, message=None if st.ready else message  # type: ignore[arg-type]
+    )
+
+
+@router.post("/parse", response_model=ParsedTransaction)
+def parse(payload: ParseRequest, current_user: CurrentUser, db: DbSession) -> ParsedTransaction:
+    """SW-22: turn a sentence into a pre-filled transaction. Nothing is saved."""
+    return parse_transaction(db, current_user, payload.text)
 
 
 @router.post("/categorize", response_model=CategorySuggestion)
@@ -62,12 +80,15 @@ def categorize(payload: CategorySuggestionRequest, current_user: CurrentUser, db
 
 @router.get("/insights", response_model=InsightsResponse)
 def insights(month: MonthParam, current_user: CurrentUser, db: DbSession) -> InsightsResponse:
-    return _run(lambda: generate_insights(db, current_user, month))
+    return generate_insights(db, current_user, month)
 
 
 @router.post("/chat", response_model=ChatResponse)
 def chat_endpoint(payload: ChatRequest, current_user: CurrentUser, db: DbSession) -> ChatResponse:
-    return _run(lambda: chat(db, current_user, payload.messages))
+    try:
+        return chat(db, current_user, payload.messages)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.post("/receipt", response_model=ReceiptScan)

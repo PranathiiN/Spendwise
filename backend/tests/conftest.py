@@ -56,13 +56,32 @@ def _create_schema() -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def _no_real_ai_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Never call the real Claude API from tests, even if ANTHROPIC_API_KEY is in .env.
+    """Never call a real LLM (Ollama or Claude) from tests, whatever backend/.env says.
 
-    AI tests install a fake client with the ``fake_ai`` fixture instead.
+    AI tests install a fake provider with the ``fake_ai`` fixture instead.
     """
     from app.services.ai import client as ai_client
 
-    monkeypatch.setattr(ai_client, "get_client", lambda: None)
+    monkeypatch.setattr(ai_client, "get_provider", lambda: None)
+
+
+@pytest.fixture
+def fake_ai(monkeypatch: pytest.MonkeyPatch):
+    """Install a fake LLM provider (used by receipt scanning); queue replies with ``fake_ai.reply(...)``."""
+    from app.services.ai import client as ai_client
+    from tests.fakes import FakeProvider
+
+    fake = FakeProvider()
+    monkeypatch.setattr(ai_client, "get_provider", lambda: fake)
+    return fake
+
+
+@pytest.fixture(autouse=True)
+def _fresh_category_models():
+    """Our own category model is cached per user; start each test from scratch."""
+    from app.services.ml.category_model import clear_cache
+
+    clear_cache()
 
 
 @pytest.fixture(autouse=True)

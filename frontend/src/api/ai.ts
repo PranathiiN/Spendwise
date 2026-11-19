@@ -6,13 +6,14 @@ import type {
   ChatResponse,
   Forecast,
   InsightsResponse,
+  ParsedTransaction,
   PaymentMethod,
   ReceiptScan,
   TransactionType,
 } from "../types";
 
-// AI calls can take longer than ordinary API calls.
-const AI_TIMEOUT = 90000;
+// Receipt scanning uses an LLM, which can take a while (especially a local model on the CPU).
+const AI_TIMEOUT = 300000;
 
 export const aiApi = {
   async status(): Promise<AIStatus> {
@@ -26,7 +27,12 @@ export const aiApi = {
     amount?: string | null;
     payment_method?: PaymentMethod | null;
   }): Promise<CategorySuggestion> {
-    const { data } = await apiClient.post<CategorySuggestion>("/ai/categorize", input, { timeout: 30000 });
+    const { data } = await apiClient.post<CategorySuggestion>("/ai/categorize", input, { timeout: 120000 });
+    return data;
+  },
+
+  async parse(text: string): Promise<ParsedTransaction> {
+    const { data } = await apiClient.post<ParsedTransaction>("/ai/parse", { text }, { timeout: AI_TIMEOUT });
     return data;
   },
 

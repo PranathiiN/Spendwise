@@ -10,6 +10,7 @@ import {
   PAYMENT_METHOD_LABELS,
   type Category,
   type CategorySuggestion,
+  type ParsedTransaction,
   type PaymentMethod,
   type Transaction,
   type TransactionPayload,
@@ -37,20 +38,28 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
-const RECEIPT_TYPES = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+const RECEIPT_IMAGE_TYPES = "image/jpeg,image/png,image/webp,image/gif";
+// Local models (Ollama) read images only; the Claude API can also read PDFs.
+const RECEIPT_TYPES = `${RECEIPT_IMAGE_TYPES},application/pdf`;
 const AMOUNT_RE = /^\d{1,10}(\.\d{1,2})?$/;
+
+const FIELD_LABELS: Record<string, string> = { amount: "amount", date: "date", category: "category" };
 
 interface TransactionFormProps {
   categories: Category[];
   initial?: Transaction | null;
+  /** SW-22: values parsed from a sentence, used to pre-fill a new transaction. */
+  prefill?: ParsedTransaction | null;
   onSubmit: (payload: TransactionPayload) => Promise<void>;
   onCancel: () => void;
 }
 
-export function TransactionForm({ categories, initial, onSubmit, onCancel }: TransactionFormProps) {
+export function TransactionForm({ categories, initial, prefill, onSubmit, onCancel }: TransactionFormProps) {
   const [error, setError] = useState<string | null>(null);
   const ai = useAiStatus();
   const isNew = !initial;
+  const prefillCategory =
+    prefill?.category && categories.some((c) => c.id === prefill.category?.id) ? prefill.category.id : "";
   const {
     register,
     handleSubmit,
@@ -61,12 +70,12 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      transaction_type: initial?.transaction_type ?? "expense",
-      amount: initial?.amount ?? "",
-      description: initial?.description ?? "",
-      category_id: initial?.category_id ?? "",
-      transaction_date: initial?.transaction_date ?? todayISO(),
-      payment_method: initial?.payment_method ?? "",
+      transaction_type: initial?.transaction_type ?? prefill?.transaction_type ?? "expense",
+      amount: initial?.amount ?? prefill?.amount ?? "",
+      description: initial?.description ?? prefill?.description ?? "",
+      category_id: initial?.category_id ?? prefillCategory,
+      transaction_date: initial?.transaction_date ?? prefill?.transaction_date ?? todayISO(),
+      payment_method: initial?.payment_method ?? prefill?.payment_method ?? "",
       notes: initial?.notes ?? "",
     },
   });
@@ -175,10 +184,24 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
     <form onSubmit={handleSubmit(submit)} className="space-y-4" noValidate>
       <ErrorAlert message={error} />
 
-      {isNew && ai?.enabled && (
+      {prefill && (
+        <p className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" role="status">
+          <Icon name="sparkles" className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
+          <span>
+            Filled in from your description. Check the details, then save.
+            {prefill.missing.length > 0 && (
+              <> Please add the {prefill.missing.map((m) => FIELD_LABELS[m] ?? m).join(" and ")}.</>
+            )}
+          </span>
+        </p>
+      )}
+
+      {isNew && !prefill && ai?.receipt_scanning && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-brand-600/40 bg-brand-50 px-3 py-2">
-          <p className="text-sm text-slate-700">Have a receipt? Upload a photo or PDF to fill this in.</p>
-          <input ref={fileInput} type="file" accept={RECEIPT_TYPES} className="sr-only" onChange={handleReceipt} aria-label="Receipt file" />
+          <p className="text-sm text-slate-700">
+            Have a receipt? Upload a {ai.provider === "ollama" ? "photo or screenshot" : "photo or PDF"} to fill this in.
+          </p>
+          <input ref={fileInput} type="file" accept={ai.provider === "ollama" ? RECEIPT_IMAGE_TYPES : RECEIPT_TYPES} className="sr-only" onChange={handleReceipt} aria-label="Receipt file" />
           <button type="button" className="btn-secondary" onClick={() => fileInput.current?.click()} disabled={scanning}>
             <Icon name="camera" className="h-4 w-4" />
             {scanning ? "Reading receipt..." : "Scan receipt"}
@@ -245,7 +268,7 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
                 Suggested: <span className="font-medium text-slate-900">{suggestedCategory.name}</span>
               </span>
               <span className="text-xs text-slate-500">
-                {suggestion?.source === "history" ? "from your past transactions" : "AI suggestion"}
+                {suggestion?.source === "history" ? "same as last time" : "based on your past transactions"}
               </span>
               <button
                 type="button"

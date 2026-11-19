@@ -7,6 +7,7 @@ import { Icon } from "../components/common/Icon";
 import { Modal } from "../components/common/Modal";
 import { Pagination } from "../components/common/Pagination";
 import { PageLoader } from "../components/common/Spinner";
+import { QuickAddBar } from "../components/transactions/QuickAddBar";
 import { TransactionFiltersBar } from "../components/transactions/TransactionFiltersBar";
 import { TransactionForm } from "../components/transactions/TransactionForm";
 import { TransactionTable } from "../components/transactions/TransactionTable";
@@ -14,7 +15,7 @@ import { useApi } from "../hooks/useApi";
 import { useCategories } from "../hooks/useCategories";
 import { useCurrency } from "../hooks/useCurrency";
 import { useDebounce } from "../hooks/useDebounce";
-import type { Transaction, TransactionFilters, TransactionPayload } from "../types";
+import type { ParsedTransaction, Transaction, TransactionFilters, TransactionPayload } from "../types";
 
 const DEFAULT_FILTERS: TransactionFilters = {
   page: 1,
@@ -34,6 +35,8 @@ export function TransactionsPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
+  const [prefill, setPrefill] = useState<ParsedTransaction | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -64,7 +67,22 @@ export function TransactionsPage() {
 
   const openCreate = () => {
     setEditing(null);
+    setPrefill(null);
+    setFormKey((k) => k + 1);
     setFormOpen(true);
+  };
+
+  const openPrefilled = (parsed: ParsedTransaction) => {
+    setEditing(null);
+    setPrefill(parsed);
+    setFormKey((k) => k + 1);
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditing(null);
+    setPrefill(null);
   };
 
   const handleSubmit = async (payload: TransactionPayload) => {
@@ -73,8 +91,7 @@ export function TransactionsPage() {
     } else {
       await transactionsApi.create(payload);
     }
-    setFormOpen(false);
-    setEditing(null);
+    closeForm();
     reload();
   };
 
@@ -109,6 +126,8 @@ export function TransactionsPage() {
           </button>
         }
       />
+
+      <QuickAddBar onParsed={openPrefilled} />
 
       <ErrorAlert message={categoriesError} />
       <ErrorAlert message={actionError} />
@@ -163,6 +182,7 @@ export function TransactionsPage() {
             onSort={handleSort}
             onEdit={(tx) => {
               setEditing(tx);
+              setPrefill(null);
               setFormOpen(true);
             }}
             onDelete={setDeleting}
@@ -180,20 +200,15 @@ export function TransactionsPage() {
       <Modal
         open={formOpen}
         title={editing ? "Edit transaction" : "Add transaction"}
-        onClose={() => {
-          setFormOpen(false);
-          setEditing(null);
-        }}
+        onClose={closeForm}
       >
         <TransactionForm
-          key={editing?.id ?? "new"}
+          key={editing?.id ?? `new-${formKey}`}
           categories={categories}
           initial={editing}
+          prefill={prefill}
           onSubmit={handleSubmit}
-          onCancel={() => {
-            setFormOpen(false);
-            setEditing(null);
-          }}
+          onCancel={closeForm}
         />
       </Modal>
 

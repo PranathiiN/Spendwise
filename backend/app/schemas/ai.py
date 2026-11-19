@@ -15,8 +15,30 @@ from app.schemas.common import NonNegativeMoney
 
 
 class AIStatus(BaseModel):
+    # SpendWise's own models (categories, quick add, insights, assistant) - always available.
     enabled: bool
+    # Receipt scanning needs an optional LLM provider (AI_PROVIDER=ollama or anthropic).
+    receipt_scanning: bool
+    provider: Literal["ollama", "anthropic", "off"]
     model: str | None
+    message: str | None = None  # why receipt scanning is unavailable, if it is
+
+
+# --- SW-22 natural-language entry -----------------------------------------------------
+
+
+class ParseRequest(BaseModel):
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class ParsedTransaction(BaseModel):
+    transaction_type: TransactionType
+    amount: Decimal | None  # serialized as a 2-decimal string
+    description: str
+    transaction_date: date | None
+    category: CategoryRead | None
+    payment_method: PaymentMethod | None
+    missing: list[str]  # fields left blank for the user to fill in
 
 
 # --- SW-12 categorisation -------------------------------------------------------------
@@ -31,7 +53,7 @@ class CategorySuggestionRequest(BaseModel):
 
 class CategorySuggestion(BaseModel):
     category: CategoryRead | None
-    source: Literal["history", "ai", "none"]
+    source: Literal["history", "model", "none"]
     confidence: Literal["low", "medium", "high"] | None
 
 
