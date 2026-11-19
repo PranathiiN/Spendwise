@@ -2,7 +2,7 @@
 
 SpendWise is a personal finance web app. You can record income and expenses, organise them into categories, set monthly budgets with warnings, track savings goals, and view a dashboard and monthly reports. Each user can only see their own data.
 
-> **Phase 1:** there is no AI functionality. AI categorisation, insights, chat, forecasting, receipt scanning and bank integrations are planned for a later phase.
+> **Phase 2:** AI category suggestions, monthly insights, a chat assistant and receipt scanning use the Claude API and switch on when `ANTHROPIC_API_KEY` is set. Month-end forecasting is plain arithmetic and always on. Bank integrations are still planned. See [AI features](#ai-features-phase-2).
 
 | Layer    | Stack |
 |----------|-------|
@@ -103,6 +103,7 @@ Copy-Item .env.example .env
 # Generate a JWT secret and paste it into .env as JWT_SECRET_KEY:
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 notepad .env      # set DATABASE_URL, TEST_DATABASE_URL, JWT_SECRET_KEY
+                  # optional: ANTHROPIC_API_KEY to turn on AI features
 ```
 
 Create the tables and default categories, then start the API:
@@ -125,6 +126,8 @@ pytest -v
 ```
 
 The tests read `TEST_DATABASE_URL` from `.env`. They refuse to run if it is missing or equal to `DATABASE_URL`.
+
+The AI tests use a fake Claude client. The test suite never calls the real Claude API, even when `ANTHROPIC_API_KEY` is set.
 
 ---
 
@@ -191,8 +194,25 @@ POST   /goals/{id}/contribute
 GET    /dashboard?month=YYYY-MM
 GET    /reports/monthly?month=YYYY-MM
 GET    /reports/monthly/export?month=YYYY-MM   (CSV)
+GET    /forecast?month=YYYY-MM   (current month only)
+GET    /ai/status                POST /ai/categorize        GET /ai/insights?month=YYYY-MM
+POST   /ai/chat                  POST /ai/receipt           (multipart file upload)
 GET    /health
 ```
+
+---
+
+## AI features (phase 2)
+
+| Feature | Where | How it works |
+|---------|-------|--------------|
+| Category suggestions (SW-12) | Add-transaction form | After you type a description, a suggested category appears with a **Use** button. It first reuses the category you last chose for the same description, so it learns from your corrections without calling the AI. Otherwise Claude picks from your own categories of the right type. Nothing is saved until you submit. |
+| Insights (SW-13) | Dashboard and Reports | **Generate insights** writes 3-5 short observations. The backend computes every figure with the same code as the dashboard; Claude only writes the wording and must cite the figures it used, which are shown under **Based on**. Needs at least 5 transactions in the month. Results are cached until your data changes. |
+| Assistant (SW-14) | **Assistant** page | Ask questions such as "How much did I spend on food last month?". Claude answers using read-only tools that call the existing services for your own data only. Each answer lists the data it used. It can't add, edit or delete anything. |
+| Forecast (SW-15) | Dashboard | Projected month-end spending, budgets likely to go over, and when each savings goal will be reached at its current pace. Plain arithmetic, no AI, labelled as an estimate. Needs at least 2 months of transactions and only covers the current month. |
+| Receipt scanning (SW-16) | Add-transaction form | Upload a JPEG, PNG, WebP, GIF or PDF (max 5 MB). Claude reads the merchant, date and total and fills in the form for you to check. Amounts are validated as 2-decimal strings. The receipt file isn't stored. |
+
+**Turning AI on:** get an API key at [console.anthropic.com](https://console.anthropic.com), add `ANTHROPIC_API_KEY=...` to `backend\.env`, and restart the backend. `AI_MODEL` defaults to `claude-opus-5-5`. Without a key, AI features show a "switched off" message, history-based category suggestions and forecasts still work, and the rest of the app is unaffected. Each AI action is a paid API call. Insights only run when you click the button, and they're cached.
 
 ---
 
@@ -207,4 +227,4 @@ GET    /health
 
 ## Ideas for the next phase
 
-AI categorisation and insights, conversational assistant, forecasting, receipt scanning, bank integrations, recurring transactions, goal contribution history, refresh tokens and rate limiting, and a dark theme.
+Bank integrations (SW-17), recurring transactions, goal contribution history (would make goal forecasts more accurate), refresh tokens and rate limiting, and a dark theme.

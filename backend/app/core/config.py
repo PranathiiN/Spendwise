@@ -39,6 +39,16 @@ class Settings(BaseSettings):
         default="http://localhost:5173,http://127.0.0.1:5173", alias="CORS_ORIGINS"
     )
 
+    # Phase 2 AI features. Leave ANTHROPIC_API_KEY empty to switch them off;
+    # the rest of the app keeps working.
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    ai_model: str = Field(default="claude-opus-5-5", alias="AI_MODEL")
+
+    @property
+    def ai_enabled(self) -> bool:
+        key = (self.anthropic_api_key or "").strip()
+        return bool(key) and not key.startswith("CHANGE_ME")
+
     @field_validator("database_url")
     @classmethod
     def _normalize_db_url(cls, value: str) -> str:

@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { forecastApi } from "../api/ai";
 import { dashboardApi } from "../api/dashboard";
+import { ForecastCard } from "../components/ai/ForecastCard";
+import { InsightsCard } from "../components/ai/InsightsCard";
 import { EmptyState, ErrorAlert, PageHeader } from "../components/common/Feedback";
 import { MonthPicker } from "../components/common/MonthPicker";
 import { PageLoader } from "../components/common/Spinner";
@@ -20,6 +23,12 @@ export function DashboardPage() {
   const { format } = useCurrency();
   const [month, setMonth] = useState(currentMonth());
   const { data, loading, error, reload } = useApi(() => dashboardApi.get(month), [month]);
+  // SW-15: forecasts only exist for the current month; failures just hide the card.
+  const isCurrentMonth = month === currentMonth();
+  const { data: forecast } = useApi(
+    () => (isCurrentMonth ? forecastApi.get(month) : Promise.resolve(null)),
+    [month, isCurrentMonth],
+  );
 
   const firstName = user?.name.split(" ")[0] ?? "";
   const hasAnyData = data ? data.recent_transactions.length > 0 : false;
@@ -54,12 +63,27 @@ export function DashboardPage() {
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
               <div className="card xl:col-span-3">
                 <h2 className="mb-4 text-base font-semibold text-slate-900">Income vs expenses (last 6 months)</h2>
-                <TrendChart data={data.monthly_trend} format={format} />
+                <TrendChart
+                  data={data.monthly_trend}
+                  format={format}
+                  projected={forecast?.available ? { month: forecast.month, expense: forecast.projected_expense } : null}
+                />
               </div>
               <div className="card xl:col-span-2">
                 <h2 className="mb-4 text-base font-semibold text-slate-900">Spending by category</h2>
                 <CategoryDonut items={data.expense_by_category} format={format} />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+              <div className="xl:col-span-3">
+                <InsightsCard month={month} />
+              </div>
+              {forecast && (
+                <div className="xl:col-span-2">
+                  <ForecastCard forecast={forecast} format={format} />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getErrorMessage } from "../api/client";
 import { reportsApi } from "../api/reports";
+import { InsightsCard } from "../components/ai/InsightsCard";
 import { ErrorAlert, PageHeader } from "../components/common/Feedback";
 import { Icon } from "../components/common/Icon";
 import { MonthPicker } from "../components/common/MonthPicker";
@@ -76,6 +77,8 @@ export function ReportsPage() {
               }
             />
           </div>
+
+          <InsightsCard month={month} />
 
           <div className="card">
             <h2 className="mb-4 text-base font-semibold text-slate-900">Daily spending</h2>

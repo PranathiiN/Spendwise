@@ -237,3 +237,93 @@ export interface MonthlyReport {
   highest_expense_day: DailyPoint | null;
   six_month_trend: TrendPoint[];
 }
+
+// ---- Phase 2 AI features ----------------------------------------------------------
+
+export interface AIStatus {
+  enabled: boolean;
+  model: string | null;
+}
+
+export interface CategorySuggestion {
+  category: Category | null;
+  source: "history" | "ai" | "none";
+  confidence: "low" | "medium" | "high" | null;
+}
+
+export interface CategoryForecast {
+  category_id: string;
+  name: string;
+  color: string;
+  spent: Money;
+  projected: Money;
+  budget: Money | null;
+  projected_status: BudgetStatus | null;
+  will_exceed_budget: boolean;
+}
+
+export interface GoalForecast {
+  goal_id: string;
+  name: string;
+  remaining: Money;
+  monthly_pace: Money;
+  projected_completion: string | null;
+  target_date: string | null;
+  on_track: boolean | null;
+}
+
+export interface Forecast {
+  month: string;
+  currency: string;
+  available: boolean;
+  reason: string | null;
+  is_estimate: boolean;
+  elapsed_days: number;
+  days_in_month: number;
+  spent_so_far: Money;
+  projected_expense: Money;
+  categories: CategoryForecast[];
+  budget_warnings: CategoryForecast[];
+  goals: GoalForecast[];
+}
+
+export interface InsightFact {
+  id: string;
+  label: string;
+  value: string;
+}
+
+export interface Insight {
+  title: string;
+  body: string;
+  tone: "positive" | "neutral" | "warning";
+  facts: InsightFact[];
+}
+
+export interface InsightsResponse {
+  month: string;
+  available: boolean;
+  reason: string | null;
+  insights: Insight[];
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+  data_used: { tool: string; description: string }[];
+}
+
+export interface ReceiptScan {
+  readable: boolean;
+  merchant: string | null;
+  transaction_date: string | null;
+  amount: Money | null;
+  currency: string | null;
+  category: Category | null;
+  message: string | null;
+  transaction_type: TransactionType;
+}

@@ -2,14 +2,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.routes import auth, budgets, categories, dashboard, goals, reports, transactions
+from app.api.routes import ai, auth, budgets, categories, dashboard, forecast, goals, reports, transactions
 from app.core.config import settings
 from app.core.dependencies import DbSession
 
 app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
-    description="SpendWise personal finance API (phase 1, no AI features).",
+    description="SpendWise personal finance API.",
 )
 
 app.add_middleware(
@@ -22,7 +22,7 @@ app.add_middleware(
 )
 
 API_PREFIX = "/api"
-for module in (auth, categories, transactions, budgets, goals, dashboard, reports):
+for module in (auth, categories, transactions, budgets, goals, dashboard, reports, forecast, ai):
     app.include_router(module.router, prefix=API_PREFIX)
 
 

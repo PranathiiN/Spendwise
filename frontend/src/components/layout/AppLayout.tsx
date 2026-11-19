@@ -9,6 +9,7 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: "/budgets", label: "Budgets", icon: "wallet" },
   { to: "/goals", label: "Savings Goals", icon: "target" },
   { to: "/reports", label: "Reports", icon: "chart" },
+  { to: "/assistant", label: "Assistant", icon: "chat" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
 

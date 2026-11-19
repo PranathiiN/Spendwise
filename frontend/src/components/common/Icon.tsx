@@ -21,6 +21,11 @@ const PATHS = {
   arrowUp: "M12 19V5M5 12l7-7 7 7",
   arrowDown: "M12 5v14M19 12l-7 7-7-7",
   search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
+  sparkles: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z",
+  chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z",
+  send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z",
+  camera: "M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2v11zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  trendUp: "M23 6l-9.5 9.5-5-5L1 18M17 6h6v6",
 } as const;
 
 export type IconName = keyof typeof PATHS;

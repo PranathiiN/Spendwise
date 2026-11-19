@@ -55,6 +55,17 @@ def _create_schema() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_ai_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never call the real Claude API from tests, even if ANTHROPIC_API_KEY is in .env.
+
+    AI tests install a fake client with the ``fake_ai`` fixture instead.
+    """
+    from app.services.ai import client as ai_client
+
+    monkeypatch.setattr(ai_client, "get_client", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _clean_tables() -> Generator[None, None, None]:
     yield
     with SessionLocal() as db:

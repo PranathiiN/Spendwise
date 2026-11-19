@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
 import { AppLayout } from "./components/layout/AppLayout";
+import { AssistantPage } from "./pages/AssistantPage";
 import { BudgetsPage } from "./pages/BudgetsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/budgets" element={<BudgetsPage />} />
           <Route path="/goals" element={<SavingsGoalsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

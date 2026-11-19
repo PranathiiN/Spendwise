@@ -1,17 +1,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { aiApi } from "../../api/ai";
 import { getErrorMessage } from "../../api/client";
+import { useAiStatus } from "../../hooks/useAiStatus";
+import { useDebounce } from "../../hooks/useDebounce";
 import {
   PAYMENT_METHOD_LABELS,
   type Category,
+  type CategorySuggestion,
   type PaymentMethod,
   type Transaction,
   type TransactionPayload,
 } from "../../types";
 import { todayISO } from "../../utils/dates";
 import { ErrorAlert } from "../common/Feedback";
+import { Icon } from "../common/Icon";
 
 // Amounts stay strings end-to-end; the backend parses them into Decimal.
 export const amountSchema = z
@@ -32,6 +37,9 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+const RECEIPT_TYPES = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+const AMOUNT_RE = /^\d{1,10}(\.\d{1,2})?$/;
+
 interface TransactionFormProps {
   categories: Category[];
   initial?: Transaction | null;
@@ -41,6 +49,8 @@ interface TransactionFormProps {
 
 export function TransactionForm({ categories, initial, onSubmit, onCancel }: TransactionFormProps) {
   const [error, setError] = useState<string | null>(null);
+  const ai = useAiStatus();
+  const isNew = !initial;
   const {
     register,
     handleSubmit,
@@ -62,6 +72,8 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
   });
 
   const type = watch("transaction_type");
+  const description = watch("description");
+  const categoryId = watch("category_id");
   const options = useMemo(() => categories.filter((c) => c.transaction_type === type), [categories, type]);
 
   // Clear the category if it doesn't match the newly selected type.
@@ -71,6 +83,76 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
       setValue("category_id", "");
     }
   }, [options, getValues, setValue]);
+
+  // ---- SW-12: category suggestion (new transactions only) -----------------------------
+  // Works without AI too: the server first looks at the user's own past transactions.
+  const debouncedDescription = useDebounce(description.trim(), 600);
+  const [suggestion, setSuggestion] = useState<CategorySuggestion | null>(null);
+
+  useEffect(() => {
+    if (!isNew || debouncedDescription.length < 3) {
+      setSuggestion(null);
+      return;
+    }
+    let cancelled = false;
+    const { amount, payment_method } = getValues();
+    aiApi
+      .suggestCategory({
+        description: debouncedDescription,
+        transaction_type: type,
+        amount: AMOUNT_RE.test(amount.trim()) ? amount.trim() : null,
+        payment_method: (payment_method || null) as PaymentMethod | null,
+      })
+      .then((s) => {
+        if (!cancelled) setSuggestion(s.category ? s : null);
+      })
+      .catch(() => {
+        if (!cancelled) setSuggestion(null); // suggestions are optional
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedDescription, type, isNew, getValues]);
+
+  const suggestedCategory =
+    suggestion?.category && suggestion.category.id !== categoryId && options.some((o) => o.id === suggestion.category?.id)
+      ? suggestion.category
+      : null;
+
+  // ---- SW-16: receipt scanning --------------------------------------------------------
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+
+  const handleReceipt = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError(null);
+    setScanNote(null);
+    setScanning(true);
+    try {
+      const scan = await aiApi.scanReceipt(file);
+      if (!scan.readable || !scan.amount) {
+        setError(scan.message ?? "Couldn't read this receipt. Enter the details yourself.");
+        return;
+      }
+      const opts = { shouldValidate: true, shouldDirty: true };
+      setValue("transaction_type", "expense", opts);
+      setValue("amount", scan.amount, opts);
+      if (scan.merchant) setValue("description", scan.merchant, opts);
+      if (scan.transaction_date) setValue("transaction_date", scan.transaction_date, opts);
+      const scannedCategory = scan.category;
+      if (scannedCategory && categories.some((c) => c.id === scannedCategory.id)) {
+        setValue("category_id", scannedCategory.id, opts);
+      }
+      setScanNote(scan.message ?? "Filled in from your receipt. Check the details, then save.");
+    } catch (err) {
+      setError(getErrorMessage(err, "Couldn't scan the receipt."));
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const submit = async (values: FormValues) => {
     setError(null);
@@ -92,6 +174,23 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
   return (
     <form onSubmit={handleSubmit(submit)} className="space-y-4" noValidate>
       <ErrorAlert message={error} />
+
+      {isNew && ai?.enabled && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-brand-600/40 bg-brand-50 px-3 py-2">
+          <p className="text-sm text-slate-700">Have a receipt? Upload a photo or PDF to fill this in.</p>
+          <input ref={fileInput} type="file" accept={RECEIPT_TYPES} className="sr-only" onChange={handleReceipt} aria-label="Receipt file" />
+          <button type="button" className="btn-secondary" onClick={() => fileInput.current?.click()} disabled={scanning}>
+            <Icon name="camera" className="h-4 w-4" />
+            {scanning ? "Reading receipt..." : "Scan receipt"}
+          </button>
+        </div>
+      )}
+      {scanNote && (
+        <p className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" role="status">
+          <Icon name="sparkles" className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
+          {scanNote}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Transaction type">
         {(["expense", "income"] as const).map((t) => (
@@ -139,6 +238,24 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
             ))}
           </select>
           {errors.category_id && <p className="field-error">{errors.category_id.message}</p>}
+          {suggestedCategory && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" aria-live="polite">
+              <span className="inline-flex items-center gap-1 text-slate-600">
+                <Icon name="sparkles" className="h-4 w-4 text-brand-700" />
+                Suggested: <span className="font-medium text-slate-900">{suggestedCategory.name}</span>
+              </span>
+              <span className="text-xs text-slate-500">
+                {suggestion?.source === "history" ? "from your past transactions" : "AI suggestion"}
+              </span>
+              <button
+                type="button"
+                className="font-medium text-brand-700 hover:underline"
+                onClick={() => setValue("category_id", suggestedCategory.id, { shouldValidate: true, shouldDirty: true })}
+              >
+                Use
+              </button>
+            </div>
+          )}
         </div>
         <div>
           <label htmlFor="payment_method" className="label">Payment method (optional)</label>
@@ -159,7 +276,7 @@ export function TransactionForm({ categories, initial, onSubmit, onCancel }: Tra
 
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" className="btn-secondary" onClick={onCancel} disabled={isSubmitting}>Cancel</button>
-        <button type="submit" className="btn-primary" disabled={isSubmitting}>
+        <button type="submit" className="btn-primary" disabled={isSubmitting || scanning}>
           {isSubmitting ? "Saving..." : initial ? "Save changes" : "Add transaction"}
         </button>
       </div>
